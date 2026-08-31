@@ -145,6 +145,13 @@ jobs:
                             { // D열 넓이 (241픽셀)
                                 updateDimensionProperties: {
                                     range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 },
+                                    properties: { pixelSize: 89 },
+                                    fields: "pixelSize"
+                                }
+                            },
+                            { // E열 넓이 (241픽셀)
+                                updateDimensionProperties: {
+                                    range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 },
                                     properties: { pixelSize: 241 },
                                     fields: "pixelSize"
                                 }
