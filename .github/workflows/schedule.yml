@@ -21,7 +21,7 @@ jobs:
     - name: 라이브러리 설치
       run: npm install google-play-scraper google-spreadsheet google-auth-library
 
-    - name: 스크립트 파일 강제 생성 및 실행
+    - name: 스크립트 강제 생성 및 실행
       env:
         GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         SHEET_URL: ${{ secrets.SHEET_URL }}
@@ -29,9 +29,12 @@ jobs:
         cat << 'EOF' > run.js
         const { GoogleSpreadsheet } = require('google-spreadsheet');
         const { JWT } = require('google-auth-library');
-        const gplay = require('google-play-scraper');
 
         async function main() {
+            // ESM 전용 패키지를 CommonJS 환경에서 정상적으로 불러오기 위한 동적 import 적용
+            const gplayModule = await import('google-play-scraper');
+            const gplay = gplayModule.default || gplayModule;
+
             const creds = JSON.parse(process.env.GCP_CREDENTIALS);
             const serviceAccountAuth = new JWT({
                 email: creds.client_email,
@@ -61,8 +64,6 @@ jobs:
                         previousRanks[appName] = parseInt(rank, 10);
                     }
                 }
-            } else {
-                console.log(`어제(${yesterdayStr}) 시트 없음: 전일 대비는 'NEW'로 표기됩니다.`);
             }
 
             let todaySheet = doc.sheetsByTitle[todayStr];
@@ -75,14 +76,15 @@ jobs:
                 todaySheet = await doc.addSheet({ title: todayStr, headerValues: headers });
             }
 
-            console.log("플레이스토어 데이터 수집 중...");
+            console.log("플레이스토어 데이터를 수집합니다...");
             const topGames = await gplay.list({
-                category: 'GAME',
-                collection: 'topgrossing',
+                category: gplay.category.GAME,
+                collection: gplay.collection.TOP_GROSSING,
                 num: 100,
                 country: 'kr',
                 lang: 'ko'
             });
+            console.log(`크롤링 완료: ${topGames.length}개 앱을 찾았습니다.`);
 
             const newRows = [];
             for (let i = 0; i < topGames.length; i++) {
@@ -99,17 +101,13 @@ jobs:
                 }
 
                 newRows.push({
-                    "날짜": todayStr,
-                    "순위": rank,
-                    "앱 이름": title,
-                    "개발사(퍼블리셔)": developer,
-                    "전일 대비": change
+                    "날짜": todayStr, "순위": rank, "앱 이름": title, "개발사(퍼블리셔)": developer, "전일 대비": change
                 });
             }
 
             if (newRows.length > 0) {
                 await todaySheet.addRows(newRows);
-                console.log(`${todayStr} 기준 Top 100 업데이트 완료!`);
+                console.log("시트 업데이트 완료!");
             }
         }
 
