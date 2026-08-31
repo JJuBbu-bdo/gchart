@@ -34,6 +34,7 @@ jobs:
         async function processCategory(doc, serviceAccountAuth, docId, todayStr, yesterdayStr, collectionType, sheetNameSuffix) {
             const yesterdaySheetName = `${yesterdayStr}_${sheetNameSuffix}`;
             const todaySheetName = `${todayStr}_${sheetNameSuffix}`;
+            const dbSheetName = `DB_${sheetNameSuffix}`; // 누적 DB 시트 이름
 
             // 1. 어제 시트에서 전일 순위 파악
             let previousRanks = {};
@@ -57,6 +58,13 @@ jobs:
                 await todaySheet.setHeaderRow(headers);
             } else {
                 todaySheet = await doc.addSheet({ title: todaySheetName, headerValues: headers });
+            }
+
+            // DB 시트 준비 (없으면 생성)
+            let dbSheet = doc.sheetsByTitle[dbSheetName];
+            const dbHeaders = ["날짜", "순위", "증감", "앱이름", "장르", "개발사(퍼블리셔)"];
+            if (!dbSheet) {
+                dbSheet = await doc.addSheet({ title: dbSheetName, headerValues: dbHeaders });
             }
 
             // 3. 플레이스토어 기본 순위 가져오기
@@ -91,11 +99,13 @@ jobs:
 
             // 5. 데이터 정리
             const newRows = [];
+            const dbRows = []; // DB 누적용 배열
             for (let i = 0; i < topGames.length; i++) {
                 const rank = i + 1;
                 const title = topGames[i].title;
                 const genre = topGames[i].genre;
-                const developer = topGames[i].developer || '알 수 없음';
+                // '111%' 등 특수 개발사 이름 자동 수식 방지를 위해 맨 앞에 작은따옴표(') 추가
+                const developer = topGames[i].developer ? `'${topGames[i].developer}` : `'알 수 없음`; 
                 
                 let change = 'NEW';
                 if (previousRanks[title]) {
@@ -105,7 +115,18 @@ jobs:
                     else change = '-';
                 }
 
+                // 일일 시트용 데이터
                 newRows.push({
+                    "순위": rank, 
+                    "증감": change, 
+                    "앱이름": title, 
+                    "장르": genre, 
+                    "개발사(퍼블리셔)": developer
+                });
+
+                // 누적 DB용 데이터 (날짜 포함)
+                dbRows.push({
+                    "날짜": todayStr,
                     "순위": rank, 
                     "증감": change, 
                     "앱이름": title, 
@@ -117,6 +138,7 @@ jobs:
             // 6. 시트 기록 및 프리패스 자동 서식 적용
             if (newRows.length > 0) {
                 await todaySheet.addRows(newRows);
+                await dbSheet.addRows(dbRows); // 누적 DB 시트에도 데이터 추가
                 
                 try {
                     const sheetId = todaySheet.sheetId;
@@ -142,7 +164,7 @@ jobs:
                                     fields: "pixelSize"
                                 }
                             },
-                            { // D열 넓이 (241픽셀)
+                            { // D열 넓이 (89픽셀)
                                 updateDimensionProperties: {
                                     range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 },
                                     properties: { pixelSize: 89 },
