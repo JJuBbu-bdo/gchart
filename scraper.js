@@ -54,8 +54,8 @@ async function main() {
     // 5. 구글 플레이스토어 크롤링 (1~100위)
     console.log("플레이스토어 데이터를 가져오는 중...");
     const topGames = await gplay.list({
-        category: gplay.category.GAME,
-        collection: gplay.collection.TOP_GROSSING,
+        category: 'GAME',
+        collection: 'GROSSING',
         num: 100,
         country: 'kr',
         lang: 'ko'
