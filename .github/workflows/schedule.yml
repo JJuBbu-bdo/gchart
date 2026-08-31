@@ -19,7 +19,7 @@ jobs:
         node-version: '24'
 
     - name: 라이브러리 설치
-      run: npm install google-play-scraper google-spreadsheet google-auth-library
+      run: npm install google-play-scraper@9.2.1 google-spreadsheet google-auth-library
 
     - name: 스크립트 강제 생성 및 실행
       env:
@@ -29,32 +29,16 @@ jobs:
         cat << 'EOF' > run.js
         const { GoogleSpreadsheet } = require('google-spreadsheet');
         const { JWT } = require('google-auth-library');
+        const gplay = require('google-play-scraper');
 
-        async function main() {
-            // ESM 전용 패키지를 CommonJS 환경에서 정상적으로 불러오기 위한 동적 import 적용
-            const gplayModule = await import('google-play-scraper');
-            const gplay = gplayModule.default || gplayModule;
+        // 순위 크롤링 및 시트 저장을 담당하는 핵심 함수
+        async function processCategory(doc, todayStr, yesterdayStr, collectionType, sheetNameSuffix) {
+            const yesterdaySheetName = `${yesterdayStr}_${sheetNameSuffix}`;
+            const todaySheetName = `${todayStr}_${sheetNameSuffix}`;
 
-            const creds = JSON.parse(process.env.GCP_CREDENTIALS);
-            const serviceAccountAuth = new JWT({
-                email: creds.client_email,
-                key: creds.private_key,
-                scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-            });
-
-            const sheetUrl = process.env.SHEET_URL;
-            const docId = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/)[1];
-            const doc = new GoogleSpreadsheet(docId, serviceAccountAuth);
-            await doc.loadInfo();
-
-            const now = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
-            const todayStr = now.toISOString().split('T')[0];
-            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-            const yesterdayStr = yesterday.toISOString().split('T')[0];
-
+            // 1. 어제 시트에서 전일 순위 파악
             let previousRanks = {};
-            const yesterdaySheet = doc.sheetsByTitle[yesterdayStr];
-            
+            const yesterdaySheet = doc.sheetsByTitle[yesterdaySheetName];
             if (yesterdaySheet) {
                 const rows = await yesterdaySheet.getRows();
                 for (const row of rows) {
@@ -66,26 +50,26 @@ jobs:
                 }
             }
 
-            let todaySheet = doc.sheetsByTitle[todayStr];
+            // 2. 오늘 시트 준비
+            let todaySheet = doc.sheetsByTitle[todaySheetName];
             const headers = ["날짜", "순위", "앱 이름", "개발사(퍼블리셔)", "전일 대비"];
-            
             if (todaySheet) {
                 await todaySheet.clear();
                 await todaySheet.setHeaderRow(headers);
             } else {
-                todaySheet = await doc.addSheet({ title: todayStr, headerValues: headers });
+                todaySheet = await doc.addSheet({ title: todaySheetName, headerValues: headers });
             }
 
-            console.log("플레이스토어 데이터를 수집합니다...");
+            // 3. 플레이스토어 데이터 가져오기
             const topGames = await gplay.list({
                 category: gplay.category.GAME,
-                collection: gplay.collection.GROSSING,
+                collection: collectionType,
                 num: 100,
                 country: 'kr',
                 lang: 'ko'
             });
-            console.log(`크롤링 완료: ${topGames.length}개 앱을 찾았습니다.`);
 
+            // 4. 전일 대비 순위 계산 및 데이터 정리
             const newRows = [];
             for (let i = 0; i < topGames.length; i++) {
                 const rank = i + 1;
@@ -105,10 +89,38 @@ jobs:
                 });
             }
 
+            // 5. 시트에 데이터 기록
             if (newRows.length > 0) {
                 await todaySheet.addRows(newRows);
-                console.log("시트 업데이트 완료!");
+                console.log(`[완료] ${todaySheetName} 업데이트 되었습니다.`);
             }
+        }
+
+        async function main() {
+            // 구글 인증 및 시트 연결
+            const creds = JSON.parse(process.env.GCP_CREDENTIALS);
+            const serviceAccountAuth = new JWT({
+                email: creds.client_email,
+                key: creds.private_key,
+                scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+            });
+
+            const sheetUrl = process.env.SHEET_URL;
+            const docId = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/)[1];
+            const doc = new GoogleSpreadsheet(docId, serviceAccountAuth);
+            await doc.loadInfo();
+
+            // 날짜 설정 (한국 시간 기준)
+            const now = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
+            const todayStr = now.toISOString().split('T')[0];
+            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+            console.log("=== 1. 게임 인기순위 데이터 수집 시작 ===");
+            await processCategory(doc, todayStr, yesterdayStr, gplay.collection.TOP_FREE, '인기순위');
+
+            console.log("=== 2. 게임 매출순위 데이터 수집 시작 ===");
+            await processCategory(doc, todayStr, yesterdayStr, gplay.collection.GROSSING, '매출순위');
         }
 
         main().catch(console.error);
