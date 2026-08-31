@@ -55,7 +55,7 @@ async function main() {
     console.log("플레이스토어 데이터를 가져오는 중...");
     const topGames = await gplay.list({
         category: 'GAME',
-        collection: 'GROSSING',
+        collection: 'TOP_GROSSING',
         num: 100,
         country: 'kr',
         lang: 'ko'
