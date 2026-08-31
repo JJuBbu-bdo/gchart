@@ -2,9 +2,8 @@ name: Daily PlayStore Rank Scraper
 
 on:
   schedule:
-    # 매일 한국 시간 오전 8시에 실행 (UTC 기준 23시)
     - cron: '0 23 * * *'
-  workflow_dispatch: # GitHub에서 수동으로 버튼을 눌러 실행할 수 있게 함
+  workflow_dispatch: 
 
 jobs:
   scrape-and-update:
@@ -12,10 +11,10 @@ jobs:
 
     steps:
     - name: 저장소 체크아웃
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4 # v3 -> v4로 업데이트 (Node.js 24 지원)
 
     - name: 파이썬 환경 설정
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5 # v4 -> v5로 업데이트 (Node.js 24 지원)
       with:
         python-version: '3.10'
 
