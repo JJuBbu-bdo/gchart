@@ -51,7 +51,7 @@ jobs:
 
             // 2. 오늘 시트 준비
             let todaySheet = doc.sheetsByTitle[todaySheetName];
-            const headers = ["순위", "순위변화", "앱이름", "장르", "개발사(퍼블리셔)"];
+            const headers = ["순위", "증감", "앱이름", "장르", "개발사(퍼블리셔)"];
             if (todaySheet) {
                 await todaySheet.clear();
                 await todaySheet.setHeaderRow(headers);
@@ -107,7 +107,7 @@ jobs:
 
                 newRows.push({
                     "순위": rank, 
-                    "전일 대비 증감+-": change, 
+                    "증감": change, 
                     "앱이름": title, 
                     "장르": genre, 
                     "개발사(퍼블리셔)": developer
