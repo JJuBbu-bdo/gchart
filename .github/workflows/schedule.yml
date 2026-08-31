@@ -41,7 +41,7 @@ jobs:
             if (yesterdaySheet) {
                 const rows = await yesterdaySheet.getRows();
                 for (const row of rows) {
-                    const appName = row.get('앱이름'); // 띄어쓰기 없는 새 헤더 기준
+                    const appName = row.get('앱이름');
                     const rank = row.get('순위');
                     if (appName && rank) {
                         previousRanks[appName] = parseInt(rank, 10);
@@ -51,7 +51,7 @@ jobs:
 
             // 2. 오늘 시트 준비
             let todaySheet = doc.sheetsByTitle[todaySheetName];
-            const headers = ["순위", "순위 변화", "앱이름", "장르", "개발사(퍼블리셔)"];
+            const headers = ["순위", "순위변화", "앱이름", "장르", "개발사(퍼블리셔)"];
             if (todaySheet) {
                 await todaySheet.clear();
                 await todaySheet.setHeaderRow(headers);
@@ -68,7 +68,7 @@ jobs:
                 lang: 'ko'
             });
 
-            // 4. 앱 상세 정보(장르) 조회를 위해 10개씩 묶어서 처리 (속도 및 차단 방지)
+            // 4. 앱 상세 정보(장르) 수집 (10개씩)
             const topGames = [];
             process.stdout.write(`  - ${sheetNameSuffix} 장르 데이터 수집 중...`);
             for (let i = 0; i < topGamesList.length; i += 10) {
@@ -84,12 +84,12 @@ jobs:
                 });
                 const results = await Promise.all(promises);
                 topGames.push(...results);
-                process.stdout.write('.'); // 진행 상황 점찍기
-                await new Promise(r => setTimeout(r, 200)); // 짧은 대기시간
+                process.stdout.write('.');
+                await new Promise(r => setTimeout(r, 200));
             }
             console.log(" 완료!");
 
-            // 5. 전일 대비 순위 계산 및 데이터 정리
+            // 5. 데이터 정리
             const newRows = [];
             for (let i = 0; i < topGames.length; i++) {
                 const rank = i + 1;
@@ -114,50 +114,47 @@ jobs:
                 });
             }
 
-            // 6. 시트에 데이터 기록 및 자동 서식(디자인) 적용
+            // 6. 시트 기록 및 프리패스 자동 서식 적용
             if (newRows.length > 0) {
                 await todaySheet.addRows(newRows);
                 
-                // 구글 시트 고급 API를 사용해 셀 넓이 및 배경색 자동 적용
                 try {
-                    const token = await serviceAccountAuth.getAccessToken();
                     const sheetId = todaySheet.sheetId;
-                    
                     const batchUpdateRequest = {
                         requests: [
-                            { // 틀 고정 (첫 줄 고정)
+                            { // 틀 고정
                                 updateSheetProperties: {
                                     properties: { sheetId: sheetId, gridProperties: { frozenRowCount: 1 } },
                                     fields: "gridProperties.frozenRowCount"
                                 }
                             },
-                            { // A, B열 넓이 (순위, 증감) = 45픽셀
+                            { // A, B열 넓이 (45픽셀)
                                 updateDimensionProperties: {
                                     range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 2 },
                                     properties: { pixelSize: 45 },
                                     fields: "pixelSize"
                                 }
                             },
-                            { // C열 넓이 (앱이름) = 265픽셀
+                            { // C열 넓이 (265픽셀)
                                 updateDimensionProperties: {
                                     range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 },
                                     properties: { pixelSize: 265 },
                                     fields: "pixelSize"
                                 }
                             },
-                            { // D열 넓이 (장르) = 241픽셀
+                            { // D열 넓이 (241픽셀)
                                 updateDimensionProperties: {
                                     range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 },
                                     properties: { pixelSize: 241 },
                                     fields: "pixelSize"
                                 }
                             },
-                            { // 첫 줄(헤더) 색상, 굵기, 가운데 정렬
+                            { // 첫 줄 배경색 및 굵게
                                 repeatCell: {
                                     range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 5 },
                                     cell: {
                                         userEnteredFormat: {
-                                            backgroundColor: { red: 0.9, green: 0.94, blue: 1.0 }, // 연한 파스텔톤 파란색
+                                            backgroundColor: { red: 0.9, green: 0.94, blue: 1.0 },
                                             textFormat: { bold: true },
                                             horizontalAlignment: "CENTER"
                                         }
@@ -165,40 +162,34 @@ jobs:
                                     fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
                                 }
                             },
-                            { // A, B열 (순위, 증감) 텍스트 가운데 정렬
+                            { // A, B열 가운데 정렬
                                 repeatCell: {
                                     range: { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 },
-                                    cell: {
-                                        userEnteredFormat: { horizontalAlignment: "CENTER" }
-                                    },
+                                    cell: { userEnteredFormat: { horizontalAlignment: "CENTER" } },
                                     fields: "userEnteredFormat.horizontalAlignment"
                                 }
                             },
-                            { // D열 (장르) 텍스트 가운데 정렬
+                            { // D열 가운데 정렬
                                 repeatCell: {
                                     range: { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 3, endColumnIndex: 4 },
-                                    cell: {
-                                        userEnteredFormat: { horizontalAlignment: "CENTER" }
-                                    },
+                                    cell: { userEnteredFormat: { horizontalAlignment: "CENTER" } },
                                     fields: "userEnteredFormat.horizontalAlignment"
                                 }
                             }
                         ]
                     };
                     
-                    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${docId}:batchUpdate`, {
+                    // fetch 대신 구글 인증 객체의 공식 통신 기능(.request) 사용
+                    await serviceAccountAuth.request({
+                        url: `https://sheets.googleapis.com/v4/spreadsheets/${docId}:batchUpdate`,
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        },
-                        body: JSON.stringify(batchUpdateRequest)
+                        data: batchUpdateRequest
                     });
+                    
+                    console.log(`[완료] 서식(디자인) 적용 성공!`);
                 } catch (styleErr) {
-                    console.error("서식 적용 중 일부 오류가 발생했습니다:", styleErr);
+                    console.error("서식 적용 실패:", styleErr.message);
                 }
-
-                console.log(`[완료] ${todaySheetName} 생성, 장르 추가 및 서식 적용이 완료되었습니다.`);
             }
         }
 
