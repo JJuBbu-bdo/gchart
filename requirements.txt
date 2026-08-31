@@ -1,0 +1,4 @@
+Plaintext
+gspread
+oauth2client
+google-play-scraper
