@@ -1,4 +1,3 @@
-Plaintext
-gspread
+gspread>=6.0.0
 oauth2client
 google-play-scraper
