@@ -21,8 +21,99 @@ jobs:
     - name: 라이브러리 설치
       run: npm install google-play-scraper google-spreadsheet google-auth-library
 
-    - name: 스크립트 실행
+    - name: 스크립트 파일 강제 생성 및 실행
       env:
         GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         SHEET_URL: ${{ secrets.SHEET_URL }}
-      run: node scraper.js
+      run: |
+        cat << 'EOF' > run.js
+        const { GoogleSpreadsheet } = require('google-spreadsheet');
+        const { JWT } = require('google-auth-library');
+        const gplay = require('google-play-scraper');
+
+        async function main() {
+            const creds = JSON.parse(process.env.GCP_CREDENTIALS);
+            const serviceAccountAuth = new JWT({
+                email: creds.client_email,
+                key: creds.private_key,
+                scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+            });
+
+            const sheetUrl = process.env.SHEET_URL;
+            const docId = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/)[1];
+            const doc = new GoogleSpreadsheet(docId, serviceAccountAuth);
+            await doc.loadInfo();
+
+            const now = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
+            const todayStr = now.toISOString().split('T')[0];
+            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+            let previousRanks = {};
+            const yesterdaySheet = doc.sheetsByTitle[yesterdayStr];
+            
+            if (yesterdaySheet) {
+                const rows = await yesterdaySheet.getRows();
+                for (const row of rows) {
+                    const appName = row.get('앱 이름');
+                    const rank = row.get('순위');
+                    if (appName && rank) {
+                        previousRanks[appName] = parseInt(rank, 10);
+                    }
+                }
+            } else {
+                console.log(`어제(${yesterdayStr}) 시트 없음: 전일 대비는 'NEW'로 표기됩니다.`);
+            }
+
+            let todaySheet = doc.sheetsByTitle[todayStr];
+            const headers = ["날짜", "순위", "앱 이름", "개발사(퍼블리셔)", "전일 대비"];
+            
+            if (todaySheet) {
+                await todaySheet.clear();
+                await todaySheet.setHeaderRow(headers);
+            } else {
+                todaySheet = await doc.addSheet({ title: todayStr, headerValues: headers });
+            }
+
+            console.log("플레이스토어 데이터 수집 중...");
+            const topGames = await gplay.list({
+                category: 'GAME',
+                collection: 'topgrossing',
+                num: 100,
+                country: 'kr',
+                lang: 'ko'
+            });
+
+            const newRows = [];
+            for (let i = 0; i < topGames.length; i++) {
+                const rank = i + 1;
+                const title = topGames[i].title;
+                const developer = topGames[i].developer || '알 수 없음';
+                
+                let change = 'NEW';
+                if (previousRanks[title]) {
+                    const diff = previousRanks[title] - rank;
+                    if (diff > 0) change = `▲ ${diff}`;
+                    else if (diff < 0) change = `▼ ${Math.abs(diff)}`;
+                    else change = '-';
+                }
+
+                newRows.push({
+                    "날짜": todayStr,
+                    "순위": rank,
+                    "앱 이름": title,
+                    "개발사(퍼블리셔)": developer,
+                    "전일 대비": change
+                });
+            }
+
+            if (newRows.length > 0) {
+                await todaySheet.addRows(newRows);
+                console.log(`${todayStr} 기준 Top 100 업데이트 완료!`);
+            }
+        }
+
+        main().catch(console.error);
+        EOF
+        
+        node run.js
