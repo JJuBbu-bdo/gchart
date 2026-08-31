@@ -19,7 +19,7 @@ jobs:
         node-version: '24'
 
     - name: 라이브러리 설치
-      run: npm install google-play-scraper@9.2.0 google-spreadsheet google-auth-library
+      run: npm install google-play-scraper@9.2.1 google-spreadsheet google-auth-library
 
     - name: 스크립트 강제 생성 및 실행
       env:
@@ -31,8 +31,7 @@ jobs:
         const { JWT } = require('google-auth-library');
         const gplay = require('google-play-scraper');
 
-        // 순위 크롤링 및 시트 저장을 담당하는 핵심 함수
-        async function processCategory(doc, todayStr, yesterdayStr, collectionType, sheetNameSuffix) {
+        async function processCategory(doc, serviceAccountAuth, docId, todayStr, yesterdayStr, collectionType, sheetNameSuffix) {
             const yesterdaySheetName = `${yesterdayStr}_${sheetNameSuffix}`;
             const todaySheetName = `${todayStr}_${sheetNameSuffix}`;
 
@@ -42,7 +41,7 @@ jobs:
             if (yesterdaySheet) {
                 const rows = await yesterdaySheet.getRows();
                 for (const row of rows) {
-                    const appName = row.get('앱 이름');
+                    const appName = row.get('앱이름'); // 띄어쓰기 없는 새 헤더 기준
                     const rank = row.get('순위');
                     if (appName && rank) {
                         previousRanks[appName] = parseInt(rank, 10);
@@ -52,7 +51,7 @@ jobs:
 
             // 2. 오늘 시트 준비
             let todaySheet = doc.sheetsByTitle[todaySheetName];
-            const headers = ["날짜", "순위", "앱 이름", "개발사(퍼블리셔)", "전일 대비"];
+            const headers = ["순위", "전일 대비 증감+-", "앱이름", "장르", "개발사(퍼블리셔)"];
             if (todaySheet) {
                 await todaySheet.clear();
                 await todaySheet.setHeaderRow(headers);
@@ -60,8 +59,8 @@ jobs:
                 todaySheet = await doc.addSheet({ title: todaySheetName, headerValues: headers });
             }
 
-            // 3. 플레이스토어 데이터 가져오기
-            const topGames = await gplay.list({
+            // 3. 플레이스토어 기본 순위 가져오기
+            const topGamesList = await gplay.list({
                 category: gplay.category.GAME,
                 collection: collectionType,
                 num: 100,
@@ -69,11 +68,33 @@ jobs:
                 lang: 'ko'
             });
 
-            // 4. 전일 대비 순위 계산 및 데이터 정리
+            // 4. 앱 상세 정보(장르) 조회를 위해 10개씩 묶어서 처리 (속도 및 차단 방지)
+            const topGames = [];
+            process.stdout.write(`  - ${sheetNameSuffix} 장르 데이터 수집 중...`);
+            for (let i = 0; i < topGamesList.length; i += 10) {
+                const chunk = topGamesList.slice(i, i + 10);
+                const promises = chunk.map(async (game) => {
+                    try {
+                        const detail = await gplay.app({ appId: game.appId, country: 'kr', lang: 'ko' });
+                        game.genre = detail.genre || '기타';
+                    } catch (e) {
+                        game.genre = '기타';
+                    }
+                    return game;
+                });
+                const results = await Promise.all(promises);
+                topGames.push(...results);
+                process.stdout.write('.'); // 진행 상황 점찍기
+                await new Promise(r => setTimeout(r, 200)); // 짧은 대기시간
+            }
+            console.log(" 완료!");
+
+            // 5. 전일 대비 순위 계산 및 데이터 정리
             const newRows = [];
             for (let i = 0; i < topGames.length; i++) {
                 const rank = i + 1;
                 const title = topGames[i].title;
+                const genre = topGames[i].genre;
                 const developer = topGames[i].developer || '알 수 없음';
                 
                 let change = 'NEW';
@@ -85,19 +106,103 @@ jobs:
                 }
 
                 newRows.push({
-                    "날짜": todayStr, "순위": rank, "앱 이름": title, "개발사(퍼블리셔)": developer, "전일 대비": change
+                    "순위": rank, 
+                    "전일 대비 증감+-": change, 
+                    "앱이름": title, 
+                    "장르": genre, 
+                    "개발사(퍼블리셔)": developer
                 });
             }
 
-            // 5. 시트에 데이터 기록
+            // 6. 시트에 데이터 기록 및 자동 서식(디자인) 적용
             if (newRows.length > 0) {
                 await todaySheet.addRows(newRows);
-                console.log(`[완료] ${todaySheetName} 업데이트 되었습니다.`);
+                
+                // 구글 시트 고급 API를 사용해 셀 넓이 및 배경색 자동 적용
+                try {
+                    const token = await serviceAccountAuth.getAccessToken();
+                    const sheetId = todaySheet.sheetId;
+                    
+                    const batchUpdateRequest = {
+                        requests: [
+                            { // 틀 고정 (첫 줄 고정)
+                                updateSheetProperties: {
+                                    properties: { sheetId: sheetId, gridProperties: { frozenRowCount: 1 } },
+                                    fields: "gridProperties.frozenRowCount"
+                                }
+                            },
+                            { // A, B열 넓이 (순위, 증감) = 45픽셀
+                                updateDimensionProperties: {
+                                    range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 2 },
+                                    properties: { pixelSize: 45 },
+                                    fields: "pixelSize"
+                                }
+                            },
+                            { // C열 넓이 (앱이름) = 265픽셀
+                                updateDimensionProperties: {
+                                    range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 },
+                                    properties: { pixelSize: 265 },
+                                    fields: "pixelSize"
+                                }
+                            },
+                            { // D열 넓이 (장르) = 241픽셀
+                                updateDimensionProperties: {
+                                    range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 },
+                                    properties: { pixelSize: 241 },
+                                    fields: "pixelSize"
+                                }
+                            },
+                            { // 첫 줄(헤더) 색상, 굵기, 가운데 정렬
+                                repeatCell: {
+                                    range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 5 },
+                                    cell: {
+                                        userEnteredFormat: {
+                                            backgroundColor: { red: 0.9, green: 0.94, blue: 1.0 }, // 연한 파스텔톤 파란색
+                                            textFormat: { bold: true },
+                                            horizontalAlignment: "CENTER"
+                                        }
+                                    },
+                                    fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
+                                }
+                            },
+                            { // A, B열 (순위, 증감) 텍스트 가운데 정렬
+                                repeatCell: {
+                                    range: { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 },
+                                    cell: {
+                                        userEnteredFormat: { horizontalAlignment: "CENTER" }
+                                    },
+                                    fields: "userEnteredFormat.horizontalAlignment"
+                                }
+                            },
+                            { // D열 (장르) 텍스트 가운데 정렬
+                                repeatCell: {
+                                    range: { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 3, endColumnIndex: 4 },
+                                    cell: {
+                                        userEnteredFormat: { horizontalAlignment: "CENTER" }
+                                    },
+                                    fields: "userEnteredFormat.horizontalAlignment"
+                                }
+                            }
+                        ]
+                    };
+                    
+                    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${docId}:batchUpdate`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(batchUpdateRequest)
+                    });
+                } catch (styleErr) {
+                    console.error("서식 적용 중 일부 오류가 발생했습니다:", styleErr);
+                }
+
+                console.log(`[완료] ${todaySheetName} 생성, 장르 추가 및 서식 적용이 완료되었습니다.`);
             }
         }
 
         async function main() {
-            // 구글 인증 및 시트 연결
             const creds = JSON.parse(process.env.GCP_CREDENTIALS);
             const serviceAccountAuth = new JWT({
                 email: creds.client_email,
@@ -110,17 +215,15 @@ jobs:
             const doc = new GoogleSpreadsheet(docId, serviceAccountAuth);
             await doc.loadInfo();
 
-            // 날짜 설정 (한국 시간 기준)
             const now = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
             const todayStr = now.toISOString().split('T')[0];
-            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-            const yesterdayStr = yesterday.toISOString().split('T')[0];
+            const yesterdayStr = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-            console.log("=== 1. 게임 인기순위 데이터 수집 시작 ===");
-            await processCategory(doc, todayStr, yesterdayStr, gplay.collection.TOP_FREE, '인기순위');
+            console.log("=== 1. 게임 인기순위 수집 시작 ===");
+            await processCategory(doc, serviceAccountAuth, docId, todayStr, yesterdayStr, gplay.collection.TOP_FREE, '인기순위');
 
-            console.log("=== 2. 게임 매출순위 데이터 수집 시작 ===");
-            await processCategory(doc, todayStr, yesterdayStr, gplay.collection.GROSSING, '매출순위');
+            console.log("\n=== 2. 게임 매출순위 수집 시작 ===");
+            await processCategory(doc, serviceAccountAuth, docId, todayStr, yesterdayStr, gplay.collection.GROSSING, '매출순위');
         }
 
         main().catch(console.error);
