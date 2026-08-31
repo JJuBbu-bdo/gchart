@@ -1,0 +1,29 @@
+name: Daily PlayStore Rank Scraper
+
+on:
+  schedule:
+    # 매일 한국 시간 오전 8시에 실행 (UTC 기준 23시)
+    - cron: '0 23 * * *'
+  workflow_dispatch: # GitHub에서 수동으로 버튼을 눌러 실행할 수 있게 함
+
+jobs:
+  scrape-and-update:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 저장소 체크아웃
+      uses: actions/checkout@v3
+
+    - name: 파이썬 환경 설정
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: 라이브러리 설치
+      run: pip install -r requirements.txt
+
+    - name: 파이썬 스크립트 실행
+      env:
+        GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+        SHEET_URL: ${{ secrets.SHEET_URL }}
+      run: python scraper.py
