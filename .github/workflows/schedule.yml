@@ -19,7 +19,7 @@ jobs:
         node-version: '24'
 
     - name: 라이브러리 설치
-      run: npm install google-play-scraper@9.2.1 google-spreadsheet google-auth-library
+      run: npm install google-play-scraper@9.2.0 google-spreadsheet google-auth-library
 
     - name: 스크립트 강제 생성 및 실행
       env:
