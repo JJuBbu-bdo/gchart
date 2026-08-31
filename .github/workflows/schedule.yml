@@ -79,7 +79,7 @@ jobs:
             console.log("플레이스토어 데이터를 수집합니다...");
             const topGames = await gplay.list({
                 category: gplay.category.GAME,
-                collection: gplay.collection.TOP_GROSSING,
+                collection: gplay.collection.GROSSING,
                 num: 100,
                 country: 'kr',
                 lang: 'ko'
