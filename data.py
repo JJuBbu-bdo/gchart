@@ -1,7 +1,12 @@
 import os
 import json
+import time
+from datetime import datetime, timedelta  # <-- 이 줄이 꼭 필요합니다!
+
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
 
 def update_db_and_trigger(scraped_data):
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
