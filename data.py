@@ -1,14 +1,26 @@
+import os
+import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
-# (이전 코드의 get_dates_in_month, scrape_calendar_by_url 함수는 그대로 사용)
 
 def update_db_and_trigger(scraped_data):
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+    
+    # 1. GitHub Actions의 Secret을 환경변수로 불러오기
+    creds_json = os.environ.get("GCP_CREDENTIALS")
+    
+    if creds_json:
+        # 깃헙 환경: Secret 문자열을 딕셔너리로 변환하여 인증
+        creds_dict = json.loads(creds_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    else:
+        # 로컬 환경: PC에서 직접 실행할 때는 기존 JSON 파일 사용
+        creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+        
     client = gspread.authorize(creds)
     
-    sheet = client.open("본인의_스프레드시트_이름")
+    # 2. 스프레드시트 연결 (실제 이름이나 URL로 꼭 변경해주세요)
+    sheet = client.open("https://docs.google.com/spreadsheets/d/1CW7Xr3eWBUKBPC0DXRDsqqrx2itUlzZfXPVF2hUoMAw/edit?gid=2017461349#gid=2017461349")
     db_sheet = sheet.worksheet("월간신작DB")
     config_sheet = sheet.worksheet("설정")
     
