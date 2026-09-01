@@ -2,7 +2,7 @@ name: Daily PlayStore Rank Scraper
 
 on:
   schedule:
-    - cron: '0 21 * * *'
+    - cron: '12 20 * * *'
   workflow_dispatch: 
 
 jobs:
