@@ -100,7 +100,7 @@ def update_db_and_trigger(scraped_data):
     client = gspread.authorize(creds)
     
     # TODO: 실제 사용하시는 스프레드시트 URL로 변경해주세요
-    sheet_url = "https://docs.google.com/spreadsheets/d/여기에_실제_문서_ID를_입력하세요/edit"
+    sheet_url = "https://docs.google.com/spreadsheets/d/1CW7Xr3eWBUKBPC0DXRDsqqrx2itUlzZfXPVF2hUoMAw/edit?gid=2017461349#gid=2017461349"
     sheet = client.open_by_url(sheet_url)
     
     db_sheet = sheet.worksheet("월간신작DB")
