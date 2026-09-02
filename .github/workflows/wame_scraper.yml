@@ -32,3 +32,8 @@ jobs:
         # GitHub Secrets에 등록할 구글 API 키를 환경변수로 전달
         GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
       run: python data.py
+
+      # 기존 파이썬 실행 스텝들...
+      
+      - name: Keepalive Workflow
+        uses: gautamkrishnar/keepalive-workflow@v2
