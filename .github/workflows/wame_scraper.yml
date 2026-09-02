@@ -35,5 +35,5 @@ jobs:
 
       # 기존 파이썬 실행 스텝들...
       
-      - name: Keepalive Workflow
-        uses: gautamkrishnar/keepalive-workflow@v2
+    - name: Keepalive Workflow
+      uses: gautamkrishnar/keepalive-workflow@v2
