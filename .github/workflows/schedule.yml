@@ -31,40 +31,28 @@ jobs:
         const { JWT } = require('google-auth-library');
         const gplay = require('google-play-scraper');
 
-        async function processCategory(doc, serviceAccountAuth, docId, todayStr, yesterdayStr, collectionType, sheetNameSuffix) {
-            const yesterdaySheetName = `${yesterdayStr}_${sheetNameSuffix}`;
-            const todaySheetName = `${todayStr}_${sheetNameSuffix}`;
+        async function processCategory(doc, docId, todayStr, yesterdayStr, collectionType, sheetNameSuffix) {
             const dbSheetName = `DB_${sheetNameSuffix}`; // 누적 DB 시트 이름
 
-            // 1. 어제 시트에서 전일 순위 파악
+            // 1. DB 시트 준비 (없으면 새로 생성)
+            let dbSheet = doc.sheetsByTitle[dbSheetName];
+            const dbHeaders = ["날짜", "순위", "증감", "앱이름", "장르", "개발사(퍼블리셔)"];
+            if (!dbSheet) {
+                dbSheet = await doc.addSheet({ title: dbSheetName, headerValues: dbHeaders });
+            }
+
+            // 2. 어제 순위 파악 (이제 일일 시트 대신 DB 시트에서 어제 날짜 데이터를 찾음)
             let previousRanks = {};
-            const yesterdaySheet = doc.sheetsByTitle[yesterdaySheetName];
-            if (yesterdaySheet) {
-                const rows = await yesterdaySheet.getRows();
-                for (const row of rows) {
+            const rows = await dbSheet.getRows();
+            for (const row of rows) {
+                const rowDate = row.get('날짜');
+                if (rowDate === yesterdayStr) { // 어제 날짜 데이터만 필터링
                     const appName = row.get('앱이름');
                     const rank = row.get('순위');
                     if (appName && rank) {
                         previousRanks[appName] = parseInt(rank, 10);
                     }
                 }
-            }
-
-            // 2. 오늘 시트 준비
-            let todaySheet = doc.sheetsByTitle[todaySheetName];
-            const headers = ["순위", "증감", "앱이름", "장르", "개발사(퍼블리셔)"];
-            if (todaySheet) {
-                await todaySheet.clear();
-                await todaySheet.setHeaderRow(headers);
-            } else {
-                todaySheet = await doc.addSheet({ title: todaySheetName, headerValues: headers });
-            }
-
-            // DB 시트 준비 (없으면 생성)
-            let dbSheet = doc.sheetsByTitle[dbSheetName];
-            const dbHeaders = ["날짜", "순위", "증감", "앱이름", "장르", "개발사(퍼블리셔)"];
-            if (!dbSheet) {
-                dbSheet = await doc.addSheet({ title: dbSheetName, headerValues: dbHeaders });
             }
 
             // 3. 플레이스토어 기본 순위 가져오기
@@ -76,7 +64,7 @@ jobs:
                 lang: 'ko'
             });
 
-            // 4. 앱 상세 정보(장르) 수집 (10개씩)
+            // 4. 앱 상세 정보(장르) 수집 (10개씩 딜레이)
             const topGames = [];
             process.stdout.write(`  - ${sheetNameSuffix} 장르 데이터 수집 중...`);
             for (let i = 0; i < topGamesList.length; i += 10) {
@@ -97,14 +85,12 @@ jobs:
             }
             console.log(" 완료!");
 
-            // 5. 데이터 정리
-            const newRows = [];
-            const dbRows = []; // DB 누적용 배열
+            // 5. DB 누적 데이터 정리
+            const dbRows = []; 
             for (let i = 0; i < topGames.length; i++) {
                 const rank = i + 1;
                 const title = topGames[i].title;
                 const genre = topGames[i].genre;
-                // '111%' 등 특수 개발사 이름 자동 수식 방지를 위해 맨 앞에 작은따옴표(') 추가
                 const developer = topGames[i].developer ? `'${topGames[i].developer}` : `'알 수 없음`; 
                 
                 let change = 'NEW';
@@ -114,15 +100,6 @@ jobs:
                     else if (diff < 0) change = `▼ ${Math.abs(diff)}`;
                     else change = '-';
                 }
-
-                // 일일 시트용 데이터
-                newRows.push({
-                    "순위": rank, 
-                    "증감": change, 
-                    "앱이름": title, 
-                    "장르": genre, 
-                    "개발사(퍼블리셔)": developer
-                });
 
                 // 누적 DB용 데이터 (날짜 포함)
                 dbRows.push({
@@ -135,90 +112,10 @@ jobs:
                 });
             }
 
-            // 6. 시트 기록 및 프리패스 자동 서식 적용
-            if (newRows.length > 0) {
-                await todaySheet.addRows(newRows);
-                await dbSheet.addRows(dbRows); // 누적 DB 시트에도 데이터 추가
-                
-                try {
-                    const sheetId = todaySheet.sheetId;
-                    const batchUpdateRequest = {
-                        requests: [
-                            { // 틀 고정
-                                updateSheetProperties: {
-                                    properties: { sheetId: sheetId, gridProperties: { frozenRowCount: 1 } },
-                                    fields: "gridProperties.frozenRowCount"
-                                }
-                            },
-                            { // A, B열 넓이 (45픽셀)
-                                updateDimensionProperties: {
-                                    range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 2 },
-                                    properties: { pixelSize: 45 },
-                                    fields: "pixelSize"
-                                }
-                            },
-                            { // C열 넓이 (265픽셀)
-                                updateDimensionProperties: {
-                                    range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 3 },
-                                    properties: { pixelSize: 265 },
-                                    fields: "pixelSize"
-                                }
-                            },
-                            { // D열 넓이 (89픽셀)
-                                updateDimensionProperties: {
-                                    range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 3, endIndex: 4 },
-                                    properties: { pixelSize: 89 },
-                                    fields: "pixelSize"
-                                }
-                            },
-                            { // E열 넓이 (241픽셀)
-                                updateDimensionProperties: {
-                                    range: { sheetId: sheetId, dimension: "COLUMNS", startIndex: 4, endIndex: 5 },
-                                    properties: { pixelSize: 241 },
-                                    fields: "pixelSize"
-                                }
-                            },
-                            { // 첫 줄 배경색 및 굵게
-                                repeatCell: {
-                                    range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 5 },
-                                    cell: {
-                                        userEnteredFormat: {
-                                            backgroundColor: { red: 0.9, green: 0.94, blue: 1.0 },
-                                            textFormat: { bold: true },
-                                            horizontalAlignment: "CENTER"
-                                        }
-                                    },
-                                    fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
-                                }
-                            },
-                            { // A, B열 가운데 정렬
-                                repeatCell: {
-                                    range: { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 },
-                                    cell: { userEnteredFormat: { horizontalAlignment: "CENTER" } },
-                                    fields: "userEnteredFormat.horizontalAlignment"
-                                }
-                            },
-                            { // D열 가운데 정렬
-                                repeatCell: {
-                                    range: { sheetId: sheetId, startRowIndex: 1, startColumnIndex: 3, endColumnIndex: 4 },
-                                    cell: { userEnteredFormat: { horizontalAlignment: "CENTER" } },
-                                    fields: "userEnteredFormat.horizontalAlignment"
-                                }
-                            }
-                        ]
-                    };
-                    
-                    // fetch 대신 구글 인증 객체의 공식 통신 기능(.request) 사용
-                    await serviceAccountAuth.request({
-                        url: `https://sheets.googleapis.com/v4/spreadsheets/${docId}:batchUpdate`,
-                        method: 'POST',
-                        data: batchUpdateRequest
-                    });
-                    
-                    console.log(`[완료] 서식(디자인) 적용 성공!`);
-                } catch (styleErr) {
-                    console.error("서식 적용 실패:", styleErr.message);
-                }
+            // 6. DB 시트에 데이터 한 번에 이어붙이기 (Append)
+            if (dbRows.length > 0) {
+                await dbSheet.addRows(dbRows);
+                console.log(`[완료] ${sheetNameSuffix} DB 시트에 데이터 기록 완료!`);
             }
         }
 
@@ -235,15 +132,15 @@ jobs:
             const doc = new GoogleSpreadsheet(docId, serviceAccountAuth);
             await doc.loadInfo();
 
-            const now = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
+            const now = new Date(new Date().getTime() + 9 * 60 * 60 * 1000); // KST 시간
             const todayStr = now.toISOString().split('T')[0];
             const yesterdayStr = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
             console.log("=== 1. 게임 인기순위 수집 시작 ===");
-            await processCategory(doc, serviceAccountAuth, docId, todayStr, yesterdayStr, gplay.collection.TOP_FREE, '인기순위');
+            await processCategory(doc, docId, todayStr, yesterdayStr, gplay.collection.TOP_FREE, '인기순위');
 
             console.log("\n=== 2. 게임 매출순위 수집 시작 ===");
-            await processCategory(doc, serviceAccountAuth, docId, todayStr, yesterdayStr, gplay.collection.GROSSING, '매출순위');
+            await processCategory(doc, docId, todayStr, yesterdayStr, gplay.collection.GROSSING, '매출순위');
         }
 
         main().catch(console.error);
@@ -251,7 +148,5 @@ jobs:
         
         node run.js
 
-        # 기존 파이썬 실행 스텝들...
-      
     - name: Keepalive Workflow
       uses: gautamkrishnar/keepalive-workflow@v2
