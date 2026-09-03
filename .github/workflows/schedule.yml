@@ -147,6 +147,3 @@ jobs:
         EOF
         
         node run.js
-
-    - name: Keepalive Workflow
-      uses: gautamkrishnar/keepalive-workflow@v2
